@@ -36,7 +36,8 @@
                     <button id="connectWalletBtn" class="w-full sm:w-auto py-2 px-5 rounded-lg font-semibold text-white btn-primary">Connect Wallet</button>
                 </div>
                 <div id="walletInfo" class="hidden text-right">
-                    <p class="text-green-400 text-sm font-medium">Connected to Fuji</p>
+                    <!-- EDITED -->
+                    <p class="text-green-400 text-sm font-medium">Connected to C-Chain</p>
                     <p id="walletAddress" class="text-gray-400 text-xs truncate"></p>
                 </div>
             </div>
@@ -112,10 +113,11 @@
 
     <script>
         // --- Configuration ---
-        const contractAddress = "0xe3e6a91F77e1E62b798DB785eBBDdcb220b1Db33";
+        // --- EDITED ---
+        const contractAddress = "0x4cea1C195559BC8F784Dc1cB85aCf64Caf6e69c7";
         const contractABI = [{"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"id","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"parentId","type":"uint256"},{"indexed":true,"internalType":"address","name":"author","type":"address"},{"indexed":false,"internalType":"string","name":"content","type":"string"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"NewPost","type":"event"},{"inputs":[{"internalType":"uint256","name":"_parentId","type":"uint256"},{"internalType":"string","name":"_content","type":"string"}],"name":"post","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"posts","outputs":[{"internalType":"uint256","name":"id","type":"uint256"},{"internalType":"uint256","name":"parentId","type":"uint256"},{"internalType":"address","name":"author","type":"address"},{"internalType":"string","name":"content","type":"string"},{"internalType":"uint256","name":"timestamp","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalPosts","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}];
-        const fujiChainId = '0xa869';
-        const MAX_CHARS = 200; // --- EDITED ---
+        const avalancheChainId = '0xa86a'; // --- EDITED --- (was fujiChainId 0xa869)
+        const MAX_CHARS = 200;
 
         // --- DOM Elements ---
         const connectWalletBtn = document.getElementById('connectWalletBtn');
@@ -178,42 +180,41 @@
         async function checkAndSwitchNetwork() {
             try {
                 const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-                if (chainId !== fujiChainId) {
-                    showMessage('Wrong network. Requesting switch to Fuji Testnet...', 'info');
-                    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: fujiChainId }] });
+                // --- EDITED ---
+                if (chainId !== avalancheChainId) {
+                    showMessage('Wrong network. Requesting switch to Avalanche C-Chain...', 'info');
+                    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: avalancheChainId }] });
                     // 'chainChanged' event will handle the reload/refetch
                 } else {
-                    showMessage('Connected to Fuji. Fetching posts...', 'success');
+                    showMessage('Connected to C-Chain. Fetching posts...', 'success');
                     newPostContainer.classList.remove('hidden');
                     fetchAllPosts();
                 }
             } catch (switchError) {
-                if (switchError.code === 4902) { await addFujiNetwork(); }
-                else { showMessage('Please switch to Fuji Testnet in MetaMask.', 'error'); }
+                // --- EDITED ---
+                if (switchError.code === 4902) { await addCChainNetwork(); } 
+                else { showMessage('Please switch to Avalanche C-Chain in MetaMask.', 'error'); }
             }
         }
 
-        async function addFujiNetwork() {
+        // --- EDITED --- (Renamed from addFujiNetwork and updated params)
+        async function addCChainNetwork() {
             try {
                 await window.ethereum.request({
                     method: 'wallet_addEthereumChain',
                     params: [{
-                        chainId: fujiChainId, chainName: 'Avalanche Fuji C-Chain',
+                        chainId: avalancheChainId, 
+                        chainName: 'Avalanche C-Chain',
                         nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
-                        rpcUrls: ['https://api.avax-test.network/ext/bc/C/rpc'],
-                        blockExplorerUrls: ['https://testnet.snowtrace.io/']
+                        rpcUrls: ['https://api.avax.network/ext/bc/C/rpc'],
+                        blockExplorerUrls: ['https://snowtrace.io/']
                     }],
                 });
-            } catch (addError) { showMessage('Could not add Fuji network.', 'error'); }
+            } catch (addError) { showMessage('Could not add Avalanche C-Chain network.', 'error'); }
         }
 
         // --- Hashboard Logic ---
 
-        /**
-         * [REVISED FUNCTION]
-         * Fetches all posts by calling totalPosts() then looping through posts(i).
-         * This avoids the eth_getLogs RPC error.
-         */
         async function fetchAllPosts() {
             if (!contractInterface || !currentAccount) return;
             loadingMessage.textContent = 'Fetching total post count...';
@@ -285,8 +286,7 @@
             const postsArray = Object.values(allPosts);
 
             // Separate threads and replies
-            // --- EDITED --- Sort threads by most recent (descending ID)
-            const threads = postsArray.filter(p => p.parentId === '0').sort((a, b) => b.id - a.id);
+            const threads = postsArray.filter(p => p.parentId === '0').sort((a, b) => b.id - a.id); // Sort by most recent
             const replies = postsArray.filter(p => p.parentId !== '0');
             
             // Map replies to their parents for easy lookup
@@ -370,7 +370,7 @@
             const postEl = createPostElement(allPosts[post.id.toString()]);
             
             if (post.parentId.toString() === '0') {
-                // --- EDITED --- It's a new thread, add to top
+                // It's a new thread, add to top
                 boardContainer.prepend(postEl);
             } else {
                 // It's a reply, find the last post in its thread and insert after
