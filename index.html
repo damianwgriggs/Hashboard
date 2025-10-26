@@ -1,1 +1,590 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hashboard - The Immutable Textboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Ethers.js is used ONLY as a utility to encode/decode data and events. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/5.7.2/ethers.umd.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #f3f4f6; }
+        .glass-panel { background: rgba(31, 41, 55, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .btn-primary { background: linear-gradient(90deg, #e84142, #b52525); transition: all 0.3s ease; }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(232, 65, 66, 0.4); }
+        .btn-primary:disabled { background: #4b5563; cursor: not-allowed; transform: none; box-shadow: none; }
+        .avax-logo { width: 28px; height: 28px; margin-right: 10px; }
+        .post { border: 1px solid #374151; }
+        .post-hidden { opacity: 0.6; border-left: 2px solid #f59e0b; }
+        .post-hidden .post-content { color: #f59e0b; font-style: italic; }
+        textarea:focus { box-shadow: 0 0 0 2px #e84142; outline: none; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <div class="w-full max-w-3xl mx-auto p-6 md:p-8 rounded-2xl shadow-2xl glass-panel">
+        
+        <!-- Header & Wallet Connection -->
+        <header class="mb-6 pb-6 border-b border-gray-700">
+            <div class="flex flex-col sm:flex-row justify-between sm:items-center">
+                <div class="flex items-center mb-4 sm:mb-0">
+                    <svg class="avax-logo" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><path d="M16 32C24.8366 32 32 24.8366 32 16C32 7.16344 24.8366 0 16 0C7.16344 0 0 7.16344 0 16C0 24.8366 7.16344 32 16 32ZM13.8643 9.49281L19.2941 9.49281L23.7314 22.5072L18.3016 22.5072L16.8973 18.6738L9.2066 18.6738L7.8023 22.5072L2.37255 22.5072L13.8643 9.49281ZM16.0501 12.3392L11.5369 16.096L14.6133 16.096L16.0501 12.3392Z" fill="#E84142"/></svg>
+                    <h1 class="text-3xl font-bold text-white tracking-tight">Hashboard</h1>
+                </div>
+                <div id="connectWalletContainer">
+                    <button id="connectWalletBtn" class="w-full sm:w-auto py-2 px-5 rounded-lg font-semibold text-white btn-primary">Connect Wallet</button>
+                </div>
+                <div id="walletInfo" class="hidden text-right">
+                    <p class="text-green-400 text-sm font-medium">Connected to Fuji</p>
+                    <p id="walletAddress" class="text-gray-400 text-xs truncate"></p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- Disclaimer -->
+            <div class="bg-yellow-900/50 border border-yellow-700 text-yellow-200 px-4 py-3 rounded-lg mb-6 text-sm">
+                <p class="font-bold">Protocol Notice & Terms of Use</p>
+                <ul class="list-disc list-inside mt-2 space-y-1">
+                    <li>All posts are permanent and stored on the Avalanche blockchain forever. They cannot be edited or deleted.</li>
+                    <li>This client-side UI will automatically hide any posts containing links (http, https, www).</li>
+                    <li>You are free to communicate, but posting illegal content is strictly forbidden.</li>
+                    <li>Your "Signer_Address" is permanently linked to all content you post. This creates an immutable record for legal accountability.</li>
+                </ul>
+            </div>
+
+            <!-- New Post Form (for new threads) -->
+            <div id="newPostContainer" class="hidden mb-6">
+                <form id="newPostForm" data-parent-id="0">
+                    <textarea id="newPostContent" class="w-full h-24 p-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none" placeholder="What's on your mind? (New thread)" required></textarea>
+                    <div class="flex justify-end items-center mt-3">
+                        <span id="newPostCharCount" class="text-sm text-gray-500 mr-4">0/280</span>
+                        <button id="newPostSubmitBtn" type="submit" class="py-2 px-5 rounded-lg font-semibold text-white btn-primary">
+                            <span>Post to Chain</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- Message Area -->
+            <div id="messageArea" class="mt-4 text-center min-h-[24px] mb-6"><p id="messageText" class="text-gray-300"></p></div>
+
+            <!-- Board Container -->
+            <div id="boardContainer">
+                <!-- Posts will be dynamically inserted here -->
+                <p id="loadingMessage" class="text-gray-400 text-center">Connecting to wallet...</p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Post <template> for cloning -->
+    <template id="postTemplate">
+        <article class="post bg-gray-800/70 rounded-lg p-4 mb-4 shadow-md" data-id="">
+            <header class="flex justify-between items-center text-xs text-gray-400 pb-2 mb-3 border-b border-gray-700">
+                <div>
+                    <span class="font-medium text-gray-300">Post #<span class="postId font-bold"></span></span>
+                    <span class="replyingTo hidden ml-2">| Replying to <a href="#" class="reply-to-link text-red-400 hover:underline">#<span class="replyToId"></span></a></span>
+                </div>
+                <span class="postTimestamp"></span>
+            </header>
+            <p class="post-content text-gray-200 text-base break-words whitespace-pre-wrap mb-3"></p>
+            <footer class="flex justify-between items-center">
+                <p class="post-author text-xs text-gray-500 truncate" title="Author Address"></p>
+                <button class="reply-btn text-sm text-red-400 hover:text-red-300 font-medium py-1 px-3 rounded-md hover:bg-gray-700 transition-colors">Reply</button>
+            </footer>
+            <!-- Hidden Reply Form -->
+            <form class="reply-form hidden mt-4" data-parent-id="">
+                <textarea class="reply-content w-full h-20 p-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 resize-none" placeholder="Write your reply..." required></textarea>
+                <div class="flex justify-end items-center mt-2">
+                    <span class="replyCharCount text-sm text-gray-500 mr-4">0/280</span>
+                    <button type="submit" class="submit-reply-btn py-1 px-4 text-sm rounded-lg font-semibold text-white btn-primary">
+                        <span>Submit Reply</span>
+                    </button>
+                </div>
+            </form>
+        </article>
+    </template>
+
+
+    <script>
+        // --- Configuration ---
+        const contractAddress = "0xe3e6a91F77e1E62b798DB785eBBDdcb220b1Db33";
+        const contractABI = [{"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"id","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"parentId","type":"uint256"},{"indexed":true,"internalType":"address","name":"author","type":"address"},{"indexed":false,"internalType":"string","name":"content","type":"string"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"NewPost","type":"event"},{"inputs":[{"internalType":"uint256","name":"_parentId","type":"uint256"},{"internalType":"string","name":"_content","type":"string"}],"name":"post","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"posts","outputs":[{"internalType":"uint256","name":"id","type":"uint256"},{"internalType":"uint256","name":"parentId","type":"uint256"},{"internalType":"address","name":"author","type":"address"},{"internalType":"string","name":"content","type":"string"},{"internalType":"uint256","name":"timestamp","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalPosts","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}];
+        const fujiChainId = '0xa869';
+        const MAX_CHARS = 280;
+
+        // --- DOM Elements ---
+        const connectWalletBtn = document.getElementById('connectWalletBtn');
+        const connectWalletContainer = document.getElementById('connectWalletContainer');
+        const walletInfo = document.getElementById('walletInfo');
+        const walletAddressEl = document.getElementById('walletAddress');
+        const messageTextEl = document.getElementById('messageText');
+        const boardContainer = document.getElementById('boardContainer');
+        const newPostContainer = document.getElementById('newPostContainer');
+        const newPostForm = document.getElementById('newPostForm');
+        const newPostContent = document.getElementById('newPostContent');
+        const newPostSubmitBtn = document.getElementById('newPostSubmitBtn');
+        const newPostCharCount = document.getElementById('newPostCharCount');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const postTemplate = document.getElementById('postTemplate');
+
+        // --- State ---
+        let currentAccount = null;
+        let contractInterface;
+        let allPosts = {}; // Use an object for easy ID-based lookup
+        let isLoading = false; // Global loading state for transactions
+
+        // --- Core Wallet Logic (from sample) ---
+        
+        async function connectWallet() {
+            if (typeof window.ethereum === 'undefined') { return showMessage('MetaMask is not installed!', 'error'); }
+            setButtonLoading(connectWalletBtn, true, 'Connecting...');
+            try {
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                handleAccountsChanged(accounts);
+            } catch (error) {
+                if (error.code === -32002) { showMessage('Connection request pending. Check MetaMask.', 'info'); }
+                else { showMessage('Wallet connection rejected.', 'error'); }
+                setButtonLoading(connectWalletBtn, false, 'Connect Wallet');
+            }
+        }
+
+        function handleAccountsChanged(accounts) {
+            if (accounts.length === 0) {
+                currentAccount = null;
+                connectWalletContainer.classList.remove('hidden');
+                walletInfo.classList.add('hidden');
+                newPostContainer.classList.add('hidden');
+                walletAddressEl.textContent = '';
+                boardContainer.innerHTML = '<p id="loadingMessage" class="text-gray-400 text-center">Please connect your wallet to see posts.</p>';
+                showMessage('Wallet disconnected.', 'info');
+            } else if (accounts[0] !== currentAccount) {
+                currentAccount = accounts[0];
+                connectWalletContainer.classList.add('hidden');
+                walletInfo.classList.remove('hidden');
+                walletAddressEl.textContent = `...${currentAccount.substring(currentAccount.length - 6)}`;
+                walletAddressEl.title = currentAccount;
+                showMessage('Wallet connected. Checking network...', 'info');
+                checkAndSwitchNetwork();
+            }
+            // Reset connect button state if it was loading
+            setButtonLoading(connectWalletBtn, false, 'Connect Wallet');
+        }
+
+        async function checkAndSwitchNetwork() {
+            try {
+                const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                if (chainId !== fujiChainId) {
+                    showMessage('Wrong network. Requesting switch to Fuji Testnet...', 'info');
+                    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: fujiChainId }] });
+                    // 'chainChanged' event will handle the reload/refetch
+                } else {
+                    showMessage('Connected to Fuji. Fetching posts...', 'success');
+                    newPostContainer.classList.remove('hidden');
+                    fetchAllPosts();
+                }
+            } catch (switchError) {
+                if (switchError.code === 4902) { await addFujiNetwork(); }
+                else { showMessage('Please switch to Fuji Testnet in MetaMask.', 'error'); }
+            }
+        }
+
+        async function addFujiNetwork() {
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                        chainId: fujiChainId, chainName: 'Avalanche Fuji C-Chain',
+                        nativeCurrency: { name: 'AVAX', symbol: 'AVAX', decimals: 18 },
+                        rpcUrls: ['https://api.avax-test.network/ext/bc/C/rpc'],
+                        blockExplorerUrls: ['https://testnet.snowtrace.io/']
+                    }],
+                });
+            } catch (addError) { showMessage('Could not add Fuji network.', 'error'); }
+        }
+
+        // --- Hashboard Logic ---
+
+        /**
+         * Fetches all 'NewPost' events from the blockchain.
+         * This is the primary method for loading the board.
+         */
+        async function fetchAllPosts() {
+            if (!contractInterface || !currentAccount) return;
+            loadingMessage.textContent = 'Fetching all posts from the chain...';
+            boardContainer.innerHTML = '';
+            boardContainer.appendChild(loadingMessage);
+            allPosts = {};
+
+            try {
+                const logs = await window.ethereum.request({
+                    method: 'eth_getLogs',
+                    params: [{
+                        fromBlock: '0x0', // Start from genesis
+                        toBlock: 'latest',
+                        address: contractAddress,
+                        topics: [contractInterface.getEventTopic('NewPost')]
+                    }]
+                });
+                
+                if (logs.length === 0) {
+                    loadingMessage.textContent = 'No posts found. Be the first!';
+                    return;
+                }
+
+                // Decode all logs
+                for (const log of logs) {
+                    const decodedLog = contractInterface.decodeEventLog('NewPost', log.data, log.topics);
+                    allPosts[decodedLog.id.toString()] = {
+                        id: decodedLog.id.toString(),
+                        parentId: decodedLog.parentId.toString(),
+                        author: decodedLog.author,
+                        content: decodedLog.content,
+                        timestamp: decodedLog.timestamp.toNumber()
+                    };
+                }
+                
+                renderBoard();
+                showMessage(`Fetched ${logs.length} posts.`, 'success');
+
+            } catch (error) {
+                console.error("Error fetching logs:", error);
+                showMessage('Could not fetch posts.', 'error');
+                loadingMessage.textContent = 'Error fetching posts.';
+            }
+        }
+
+        /**
+         * Renders the entire board from the 'allPosts' state object.
+         * Handles threading and sorting.
+         */
+        function renderBoard() {
+            boardContainer.innerHTML = '';
+            const postsArray = Object.values(allPosts);
+
+            // Separate threads and replies
+            const threads = postsArray.filter(p => p.parentId === '0').sort((a, b) => a.id - b.id);
+            const replies = postsArray.filter(p => p.parentId !== '0');
+            
+            // Map replies to their parents for easy lookup
+            const repliesByParent = replies.reduce((acc, reply) => {
+                if (!acc[reply.parentId]) {
+                    acc[reply.parentId] = [];
+                }
+                acc[reply.parentId].push(reply);
+                // Sort replies by ID (timestamp)
+                acc[reply.parentId].sort((a, b) => a.id - b.id);
+                return acc;
+            }, {});
+
+            // Render threads and their replies
+            threads.forEach(thread => {
+                const threadEl = createPostElement(thread);
+                boardContainer.appendChild(threadEl);
+
+                if (repliesByParent[thread.id]) {
+                    repliesByParent[thread.id].forEach(reply => {
+                        const replyEl = createPostElement(reply);
+                        replyEl.classList.add('ml-6', 'md:ml-12'); // Indent replies
+                        boardContainer.appendChild(replyEl);
+                    });
+                }
+            });
+        }
+
+        /**
+         * Creates a DOM element for a single post.
+         * @param {object} post - The post object from 'allPosts'.
+         */
+        function createPostElement(post) {
+            const postEl = postTemplate.content.cloneNode(true).firstElementChild;
+            
+            postEl.dataset.id = post.id;
+            postEl.querySelector('.postId').textContent = post.id;
+            postEl.querySelector('.postTimestamp').textContent = new Date(post.timestamp * 1000).toLocaleString();
+            postEl.querySelector('.post-author').textContent = `Author: ...${post.author.substring(post.author.length - 6)}`;
+            postEl.querySelector('.post-author').title = post.author;
+
+            // Handle replies
+            if (post.parentId !== '0') {
+                postEl.querySelector('.replyingTo').classList.remove('hidden');
+                postEl.querySelector('.replyToId').textContent = post.parentId;
+                postEl.querySelector('.reply-to-link').href = `#post-${post.parentId}`; // Link for navigation
+                postEl.id = `post-${post.id}`; // Add ID for linking
+            }
+
+            // Client-side link filtering
+            const contentEl = postEl.querySelector('.post-content');
+            if (hasLink(post.content)) {
+                postEl.classList.add('post-hidden');
+                contentEl.textContent = '[Link-containing post hidden by client-side filter]';
+            } else {
+                contentEl.textContent = post.content;
+            }
+
+            // Set up reply form
+            const replyForm = postEl.querySelector('.reply-form');
+            replyForm.dataset.parentId = post.id;
+
+            return postEl;
+        }
+
+        /**
+         * Adds a single new post to the board without a full re-render.
+         * @param {object} post - The decoded post object.
+         */
+        function addPostToBoard(post) {
+            // Add to state
+            allPosts[post.id.toString()] = {
+                id: post.id.toString(),
+                parentId: post.parentId.toString(),
+                author: post.author,
+                content: post.content,
+                timestamp: post.timestamp.toNumber()
+            };
+
+            // Create and append element
+            const postEl = createPostElement(allPosts[post.id.toString()]);
+            
+            if (post.parentId.toString() === '0') {
+                // It's a new thread, add to bottom
+                boardContainer.appendChild(postEl);
+            } else {
+                // It's a reply, find the last post in its thread and insert after
+                const parentId = post.parentId.toString();
+                let lastChild = document.querySelector(`article[data-id="${parentId}"]`);
+                
+                // Find all replies to this parent
+                const childReplies = Array.from(boardContainer.querySelectorAll('article'))
+                    .filter(el => {
+                        const postData = allPosts[el.dataset.id];
+                        return postData && postData.parentId === parentId;
+                    });
+                
+                if (childReplies.length > 0) {
+                    lastChild = childReplies[childReplies.length - 1]; // Get the last one
+                }
+
+                if (lastChild) {
+                    postEl.classList.add('ml-6', 'md:ml-12'); // Indent reply
+                    lastChild.after(postEl);
+                } else {
+                    // Fallback: parent not found in DOM? Just append.
+                    boardContainer.appendChild(postEl);
+                }
+            }
+
+            // Scroll to the new post
+            postEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+
+        /**
+         * Handles submission for both new posts and replies.
+         * @param {Event} e - The form submit event.
+         */
+        async function handleFormSubmit(e) {
+            e.preventDefault();
+            if (isLoading || !currentAccount) return;
+
+            const form = e.target;
+            const textarea = form.querySelector('textarea');
+            const content = textarea.value.trim();
+            const parentId = form.dataset.parentId;
+            const submitBtn = form.querySelector('button[type="submit"]');
+
+            if (content.length === 0) {
+                return showMessage('Post content cannot be empty.', 'error');
+            }
+            if (content.length > MAX_CHARS) {
+                 return showMessage(`Post exceeds ${MAX_CHARS} characters.`, 'error');
+            }
+
+            setLoading(true);
+            setButtonLoading(submitBtn, true);
+            showMessage('Confirm transaction in your wallet...', 'info');
+
+            const txParams = {
+                from: currentAccount,
+                to: contractAddress,
+                gas: '0x493E0', // 300,000 gas limit (safe for strings)
+                data: contractInterface.encodeFunctionData("post", [parentId, content]),
+            };
+
+            try {
+                const txHash = await window.ethereum.request({ method: 'eth_sendTransaction', params: [txParams] });
+                showMessage('Posting... Waiting for confirmation.', 'info');
+                
+                const receipt = await waitForTransaction(txHash);
+
+                if (receipt.status === '0x1') {
+                    const postLog = receipt.logs.find(log => log.address.toLowerCase() === contractAddress.toLowerCase());
+                    if (postLog) {
+                        const decodedLog = contractInterface.decodeEventLog("NewPost", postLog.data, postLog.topics);
+                        addPostToBoard(decodedLog);
+                        showMessage('Post successful!', 'success');
+                        textarea.value = ''; // Clear textarea
+                        updateCharCount({ target: textarea }); // Reset char count
+                        if (form.classList.contains('reply-form')) {
+                            form.classList.add('hidden'); // Hide reply form
+                        }
+                    } else {
+                        showMessage('Post confirmed, but event log not found.', 'info');
+                    }
+                } else {
+                    showMessage('Transaction failed. Post not submitted.', 'error');
+                }
+            } catch (error) {
+                if (error.code === 4001) { showMessage('Transaction cancelled.', 'error'); }
+                else { showMessage('An error occurred.', 'error'); console.error(error); }
+            }
+            
+            setLoading(false);
+            setButtonLoading(submitBtn, false);
+        }
+
+        // --- Utility Functions ---
+
+        function hasLink(text) {
+            const linkRegex = /https:\/\/|http:\/\/|www\./i;
+            return linkRegex.test(text);
+        }
+
+        function waitForTransaction(txHash) {
+            showMessage('Transaction sent. Waiting for blockchain confirmation...', 'info');
+            return new Promise((resolve) => {
+                const interval = setInterval(async () => {
+                    try {
+                        const receipt = await window.ethereum.request({ method: 'eth_getTransactionReceipt', params: [txHash] });
+                        if (receipt) { clearInterval(interval); resolve(receipt); }
+                    } catch(e) { console.error(e); }
+                }, 2000);
+            });
+        }
+
+        function setLoading(loading) {
+            isLoading = loading;
+            // Disable all forms during loading
+            [newPostSubmitBtn, ...document.querySelectorAll('.submit-reply-btn')].forEach(btn => btn.disabled = loading);
+        }
+
+        function setButtonLoading(button, isLoading, loadingText = '') {
+            if (!button) return;
+            const originalText = button.querySelector('span') ? button.querySelector('span').textContent : button.textContent;
+            button.disabled = isLoading;
+            const loadingSpinner = `<svg class="animate-spin h-5 w-5 mx-auto" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+            
+            if (isLoading) {
+                button.innerHTML = loadingText ? `<span>${loadingText}</span>` : loadingSpinner;
+            } else {
+                // Restore original text (handles both button types)
+                if (button.id === 'connectWalletBtn') button.textContent = originalText;
+                else button.innerHTML = `<span>${originalText}</span>`;
+            }
+        }
+
+        let messageTimer;
+        function showMessage(msg, type = 'info') {
+            clearTimeout(messageTimer);
+            messageTextEl.textContent = msg;
+            messageTextEl.className = 'transition-opacity duration-300';
+            messageTextEl.classList.add(type === 'success' ? 'text-green-400' : type === 'error' ? 'text-red-400' : 'text-gray-300');
+            if (type === 'success' || type === 'info') {
+                messageTimer = setTimeout(() => {
+                    if (messageTextEl.textContent === msg) {
+                        messageTextEl.textContent = '';
+                    }
+                }, 4000);
+            }
+        }
+
+        function updateCharCount(e) {
+            const ta = e.target;
+            const count = ta.value.length;
+            const charCountEl = ta.closest('form').querySelector('.text-sm');
+            if (!charCountEl) return;
+            
+            charCountEl.textContent = `${count}/${MAX_CHARS}`;
+            if (count > MAX_CHARS) {
+                charCountEl.classList.add('text-red-500');
+                charCountEl.classList.remove('text-gray-500');
+            } else {
+                charCountEl.classList.remove('text-red-500');
+                charCountEl.classList.add('text-gray-500');
+            }
+        }
+
+        // --- Initial Load & Event Listeners ---
+        function init() {
+            if (contractABI && contractABI.length > 0 && contractAddress) {
+                contractInterface = new ethers.utils.Interface(contractABI);
+            } else {
+                showMessage('Contract address or ABI is missing!', 'error');
+                return;
+            }
+
+            if (typeof window.ethereum !== 'undefined') {
+                window.ethereum.on('accountsChanged', handleAccountsChanged);
+                window.ethereum.on('chainChanged', () => window.location.reload());
+                // Try to get accounts on initial load
+                window.ethereum.request({ method: 'eth_accounts' })
+                    .then(handleAccountsChanged)
+                    .catch(err => console.error("Error fetching initial accounts:", err));
+            } else {
+                showMessage('Please install MetaMask to use Hashboard!', 'error');
+                connectWalletBtn.disabled = true;
+                loadingMessage.textContent = 'MetaMask not found. Please install it to continue.';
+            }
+
+            // --- Event Listeners ---
+            connectWalletBtn.addEventListener('click', connectWallet);
+            newPostForm.addEventListener('submit', handleFormSubmit);
+            newPostContent.addEventListener('input', updateCharCount);
+
+            // Event delegation for reply buttons and forms
+            boardContainer.addEventListener('click', e => {
+                // Toggle reply form
+                if (e.target.classList.contains('reply-btn')) {
+                    const postEl = e.target.closest('.post');
+                    const replyForm = postEl.querySelector('.reply-form');
+                    replyForm.classList.toggle('hidden');
+                    if (!replyForm.classList.contains('hidden')) {
+                        replyForm.querySelector('textarea').focus();
+                    }
+                }
+                
+                // Navigate to parent post
+                if (e.target.classList.contains('reply-to-link')) {
+                    e.preventDefault();
+                    const href = e.target.getAttribute('href');
+                    const targetEl = document.querySelector(href);
+                    if (targetEl) {
+                        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        targetEl.classList.add('outline', 'outline-2', 'outline-red-500', 'transition-all');
+                        setTimeout(() => targetEl.classList.remove('outline', 'outline-2', 'outline-red-500'), 2000);
+                    }
+                }
+            });
+            
+            // Event delegation for reply form submissions
+            boardContainer.addEventListener('submit', e => {
+                if (e.target.classList.contains('reply-form')) {
+                    handleFormSubmit(e);
+                }
+            });
+
+            // Event delegation for reply char counts
+            boardContainer.addEventListener('input', e => {
+                if (e.target.classList.contains('reply-content')) {
+                    updateCharCount(e);
+                }
+            });
+        }
+        
+        init();
+    </script>
+</body>
+</html>
