@@ -62,7 +62,7 @@
                 <form id="newPostForm" data-parent-id="0">
                     <textarea id="newPostContent" class="w-full h-24 p-3 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none" placeholder="What's on your mind? (New thread)" required></textarea>
                     <div class="flex justify-end items-center mt-3">
-                        <span id="newPostCharCount" class="text-sm text-gray-500 mr-4">0/280</span>
+                        <span id="newPostCharCount" class="text-sm text-gray-500 mr-4">0/200</span>
                         <button id="newPostSubmitBtn" type="submit" class="py-2 px-5 rounded-lg font-semibold text-white btn-primary">
                             <span>Post to Chain</span>
                         </button>
@@ -100,7 +100,7 @@
             <form class="reply-form hidden mt-4" data-parent-id="">
                 <textarea class="reply-content w-full h-20 p-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-200 placeholder-gray-500 resize-none" placeholder="Write your reply..." required></textarea>
                 <div class="flex justify-end items-center mt-2">
-                    <span class="replyCharCount text-sm text-gray-500 mr-4">0/280</span>
+                    <span class="replyCharCount text-sm text-gray-500 mr-4">0/200</span>
                     <button type="submit" class="submit-reply-btn py-1 px-4 text-sm rounded-lg font-semibold text-white btn-primary">
                         <span>Submit Reply</span>
                     </button>
@@ -115,7 +115,7 @@
         const contractAddress = "0xe3e6a91F77e1E62b798DB785eBBDdcb220b1Db33";
         const contractABI = [{"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"id","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"parentId","type":"uint256"},{"indexed":true,"internalType":"address","name":"author","type":"address"},{"indexed":false,"internalType":"string","name":"content","type":"string"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"NewPost","type":"event"},{"inputs":[{"internalType":"uint256","name":"_parentId","type":"uint256"},{"internalType":"string","name":"_content","type":"string"}],"name":"post","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"posts","outputs":[{"internalType":"uint256","name":"id","type":"uint256"},{"internalType":"uint256","name":"parentId","type":"uint256"},{"internalType":"address","name":"author","type":"address"},{"internalType":"string","name":"content","type":"string"},{"internalType":"uint256","name":"timestamp","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalPosts","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}];
         const fujiChainId = '0xa869';
-        const MAX_CHARS = 280;
+        const MAX_CHARS = 200; // --- EDITED ---
 
         // --- DOM Elements ---
         const connectWalletBtn = document.getElementById('connectWalletBtn');
@@ -285,7 +285,8 @@
             const postsArray = Object.values(allPosts);
 
             // Separate threads and replies
-            const threads = postsArray.filter(p => p.parentId === '0').sort((a, b) => a.id - b.id);
+            // --- EDITED --- Sort threads by most recent (descending ID)
+            const threads = postsArray.filter(p => p.parentId === '0').sort((a, b) => b.id - a.id);
             const replies = postsArray.filter(p => p.parentId !== '0');
             
             // Map replies to their parents for easy lookup
@@ -294,7 +295,7 @@
                     acc[reply.parentId] = [];
                 }
                 acc[reply.parentId].push(reply);
-                // Sort replies by ID (timestamp)
+                // Sort replies by ID (timestamp) - oldest first for readability
                 acc[reply.parentId].sort((a, b) => a.id - b.id);
                 return acc;
             }, {});
@@ -369,8 +370,8 @@
             const postEl = createPostElement(allPosts[post.id.toString()]);
             
             if (post.parentId.toString() === '0') {
-                // It's a new thread, add to bottom
-                boardContainer.appendChild(postEl);
+                // --- EDITED --- It's a new thread, add to top
+                boardContainer.prepend(postEl);
             } else {
                 // It's a reply, find the last post in its thread and insert after
                 const parentId = post.parentId.toString();
