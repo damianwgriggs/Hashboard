@@ -35,9 +35,9 @@
                 <div id="connectWalletContainer">
                     <button id="connectWalletBtn" class="w-full sm:w-auto py-2 px-5 rounded-lg font-semibold text-white btn-primary">Connect Wallet</button>
                 </div>
+                <!-- UPDATED: Separated network status from wallet address -->
                 <div id="walletInfo" class="hidden text-right">
-                    <!-- EDITED -->
-                    <p class="text-green-400 text-sm font-medium">Connected to C-Chain</p>
+                    <p id="networkStatus" class="text-sm font-medium"></p>
                     <p id="walletAddress" class="text-gray-400 text-xs truncate"></p>
                 </div>
             </div>
@@ -113,10 +113,9 @@
 
     <script>
         // --- Configuration ---
-        // --- EDITED ---
         const contractAddress = "0x4cea1C195559BC8F784Dc1cB85aCf64Caf6e69c7";
         const contractABI = [{"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"id","type":"uint256"},{"indexed":true,"internalType":"uint256","name":"parentId","type":"uint256"},{"indexed":true,"internalType":"address","name":"author","type":"address"},{"indexed":false,"internalType":"string","name":"content","type":"string"},{"indexed":false,"internalType":"uint256","name":"timestamp","type":"uint256"}],"name":"NewPost","type":"event"},{"inputs":[{"internalType":"uint256","name":"_parentId","type":"uint256"},{"internalType":"string","name":"_content","type":"string"}],"name":"post","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"posts","outputs":[{"internalType":"uint256","name":"id","type":"uint256"},{"internalType":"uint256","name":"parentId","type":"uint256"},{"internalType":"address","name":"author","type":"address"},{"internalType":"string","name":"content","type":"string"},{"internalType":"uint256","name":"timestamp","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalPosts","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"}];
-        const avalancheChainId = '0xa86a'; // --- EDITED --- (was fujiChainId 0xa869)
+        const avalancheChainId = '0xa86a';
         const MAX_CHARS = 200;
 
         // --- DOM Elements ---
@@ -124,6 +123,7 @@
         const connectWalletContainer = document.getElementById('connectWalletContainer');
         const walletInfo = document.getElementById('walletInfo');
         const walletAddressEl = document.getElementById('walletAddress');
+        const networkStatusEl = document.getElementById('networkStatus'); // <-- NEW
         const messageTextEl = document.getElementById('messageText');
         const boardContainer = document.getElementById('boardContainer');
         const newPostContainer = document.getElementById('newPostContainer');
@@ -155,49 +155,75 @@
             }
         }
 
+        // UPDATED: Simplified this function, moved UI logic to checkAndSwitchNetwork
         function handleAccountsChanged(accounts) {
             if (accounts.length === 0) {
+                // --- DISCONNECTED STATE ---
                 currentAccount = null;
                 connectWalletContainer.classList.remove('hidden');
                 walletInfo.classList.add('hidden');
                 newPostContainer.classList.add('hidden');
                 walletAddressEl.textContent = '';
+                networkStatusEl.textContent = '';
                 boardContainer.innerHTML = '<p id="loadingMessage" class="text-gray-400 text-center">Please connect your wallet to see posts.</p>';
                 showMessage('Wallet disconnected.', 'info');
             } else if (accounts[0] !== currentAccount) {
+                // --- ACCOUNT CHANGED/NEWLY CONNECTED STATE ---
                 currentAccount = accounts[0];
                 connectWalletContainer.classList.add('hidden');
                 walletInfo.classList.remove('hidden');
                 walletAddressEl.textContent = `...${currentAccount.substring(currentAccount.length - 6)}`;
                 walletAddressEl.title = currentAccount;
-                showMessage('Wallet connected. Checking network...', 'info');
-                checkAndSwitchNetwork();
+                
+                // Don't assume network is correct. Let checkAndSwitchNetwork handle all UI.
+                checkAndSwitchNetwork(); 
             }
             // Reset connect button state if it was loading
             setButtonLoading(connectWalletBtn, false, 'Connect Wallet');
         }
 
+        // UPDATED: This function now controls all network-dependent UI
         async function checkAndSwitchNetwork() {
+            if (!currentAccount) return; // Don't run if wallet is disconnected
+
             try {
                 const chainId = await window.ethereum.request({ method: 'eth_chainId' });
-                // --- EDITED ---
-                if (chainId !== avalancheChainId) {
-                    showMessage('Wrong network. Requesting switch to Avalanche C-Chain...', 'info');
-                    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: avalancheChainId }] });
-                    // 'chainChanged' event will handle the reload/refetch
-                } else {
-                    showMessage('Connected to C-Chain. Fetching posts...', 'success');
+                
+                if (chainId === avalancheChainId) {
+                    // --- CORRECT NETWORK STATE ---
+                    networkStatusEl.textContent = 'Connected to C-Chain';
+                    networkStatusEl.className = 'text-green-400 text-sm font-medium';
                     newPostContainer.classList.remove('hidden');
-                    fetchAllPosts();
+                    showMessage('Connected to C-Chain. Fetching posts...', 'success');
+                    fetchAllPosts(); // Fetch posts only if network is correct
+
+                } else {
+                    // --- WRONG NETWORK STATE ---
+                    networkStatusEl.textContent = 'Wrong Network';
+                    networkStatusEl.className = 'text-red-400 text-sm font-medium';
+                    newPostContainer.classList.add('hidden'); // Hide posting
+                    boardContainer.innerHTML = '<p id="loadingMessage" class="text-gray-400 text-center">Please switch to Avalanche C-Chain in MetaMask to post and view content.</p>';
+                    showMessage('Wrong network. Requesting switch to Avalanche C-Chain...', 'info');
+                    
+                    // Try to switch
+                    await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: avalancheChainId }] });
+                    // If successful, the 'chainChanged' event will fire, reloading the page and re-running this logic.
                 }
             } catch (switchError) {
-                // --- EDITED ---
-                if (switchError.code === 4902) { await addCChainNetwork(); } 
-                else { showMessage('Please switch to Avalanche C-Chain in MetaMask.', 'error'); }
+                 // --- ERROR STATE (e.g., user rejected switch) ---
+                 networkStatusEl.textContent = 'Wrong Network';
+                 networkStatusEl.className = 'text-red-400 text-sm font-medium';
+                 newPostContainer.classList.add('hidden');
+                 boardContainer.innerHTML = '<p id="loadingMessage" class="text-gray-400 text-center">Please switch to Avalanche C-Chain in MetaMask to post and view content.</p>';
+
+                 if (switchError.code === 4902) { 
+                     await addCChainNetwork(); 
+                 } else { 
+                     showMessage('Please switch to Avalanche C-Chain in MetaMask.', 'error'); 
+                 }
             }
         }
 
-        // --- EDITED --- (Renamed from addFujiNetwork and updated params)
         async function addCChainNetwork() {
             try {
                 await window.ethereum.request({
@@ -406,9 +432,24 @@
          * Handles submission for both new posts and replies.
          * @param {Event} e - The form submit event.
          */
+        // UPDATED: Added a network check before submitting
         async function handleFormSubmit(e) {
             e.preventDefault();
             if (isLoading || !currentAccount) return;
+
+            // --- NEW: PRE-SUBMISSION NETWORK CHECK ---
+            try {
+                const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+                if (chainId !== avalancheChainId) {
+                    showMessage('Wrong network. Please switch to Avalanche C-Chain and try again.', 'error');
+                    checkAndSwitchNetwork(); // Re-trigger the switch prompt
+                    return;
+                }
+            } catch (error) {
+                showMessage('Could not verify network. Please try again.', 'error');
+                return;
+            }
+            // --- END NEW CHECK ---
 
             const form = e.target;
             const textarea = form.querySelector('textarea');
@@ -547,8 +588,11 @@
             }
 
             if (typeof window.ethereum !== 'undefined') {
-                window.ethereum.on('accountsChanged', handleAccountsChanged);
+                // UPDATED: 'chainChanged' now reloads the page. This is the simplest
+                // way to force the app to re-check the network and re-load state.
                 window.ethereum.on('chainChanged', () => window.location.reload());
+                window.ethereum.on('accountsChanged', handleAccountsChanged);
+                
                 // Try to get accounts on initial load
                 window.ethereum.request({ method: 'eth_accounts' })
                     .then(handleAccountsChanged)
